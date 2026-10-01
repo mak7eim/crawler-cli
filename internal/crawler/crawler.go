@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"crawler-cli/internal/fetcher"
 	"crawler-cli/internal/logger"
 	"crawler-cli/internal/parser"
 	"fmt"
@@ -12,23 +11,26 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 )
 
 const maxWorkers = 10
 
+type Fetcher interface {
+	Fetch(ctx context.Context, rawURL string) (io.ReadCloser, int, string, error)
+}
+
 type Crawler struct {
 	depth      int
 	maxWorkers int
-	fetcher    *fetcher.Fetcher
+	fetcher    Fetcher
 	logger     *logger.Logger
 }
 
-func New(depth int, requestTimeout time.Duration, log *logger.Logger) *Crawler {
+func New(depth int, pageFetcher Fetcher, log *logger.Logger) *Crawler {
 	return &Crawler{
 		depth:      depth,
 		maxWorkers: maxWorkers,
-		fetcher:    fetcher.New(requestTimeout),
+		fetcher:    pageFetcher,
 		logger:     log,
 	}
 }

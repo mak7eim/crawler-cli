@@ -2,14 +2,73 @@ package crawler
 
 import (
 	"context"
+	"crawler-cli/internal/fetcher"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"crawler-cli/internal/logger"
+
+	"go.uber.org/goleak"
 )
+
+type blockingFetcher struct {
+	started chan struct{}
+}
+
+func (f *blockingFetcher) Fetch(
+	ctx context.Context,
+	_ string,
+) (io.ReadCloser, int, string, error) {
+	close(f.started)
+
+	<-ctx.Done()
+	return nil, 0, "", ctx.Err()
+}
+
+func TestRunStopsWorkersAfterOverallTimeout(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+
+	log, err := logger.New(t.TempDir() + "/crawler.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	f := &blockingFetcher{
+		started: make(chan struct{}),
+	}
+	craw := New(0, f, log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	runDone := make(chan struct{})
+	go func() {
+		craw.Run(ctx, []string{"https://example.test"})
+		close(runDone)
+	}()
+
+	select {
+	case <-f.started:
+	case <-time.After(time.Second):
+		t.Fatal("fetch task not start")
+	}
+
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("Run not return after context timeout")
+	}
+
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("context error = %v, want DeadlineExceeded", ctx.Err())
+	}
+}
 
 func TestRunProcessesMoreThanWorkerBatch(t *testing.T) {
 	const children = 25
@@ -33,7 +92,7 @@ func TestRunProcessesMoreThanWorkerBatch(t *testing.T) {
 	}
 	defer log.Close()
 
-	crawler := New(1, time.Second, log)
+	crawler := New(1, fetcher.New(time.Second), log)
 	tree := crawler.Run(context.Background(), []string{server.URL + "/"})
 
 	if len(tree) != 1 {

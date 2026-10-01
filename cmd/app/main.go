@@ -4,6 +4,7 @@ import (
 	"context"
 	"crawler-cli/internal/config"
 	"crawler-cli/internal/crawler"
+	"crawler-cli/internal/fetcher"
 	"crawler-cli/internal/logger"
 	"fmt"
 	"os"
@@ -33,7 +34,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(signalCtx, cfg.Timeout)
 	defer cancel()
 
-	craw := crawler.New(cfg.MaxDepth, cfg.RequestTimeout, log)
+	httpFetcher := fetcher.New(cfg.RequestTimeout)
+	craw := crawler.New(cfg.MaxDepth, httpFetcher, log)
 	tree := craw.Run(ctx, cfg.URLs)
 
 	if err := ctx.Err(); err != nil {
